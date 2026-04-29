@@ -2,7 +2,7 @@ name: SeeuStock Auto Trading
 
 on:
   schedule:
-    - cron: '50 11 * * 1-5'
+    - cron: '50 12 * * 1-5'
   workflow_dispatch:
 
 jobs:
