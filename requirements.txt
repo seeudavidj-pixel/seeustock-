@@ -1,0 +1,5 @@
+alpaca-py
+requests
+beautifulsoup4
+schedule
+pytz
