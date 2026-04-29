@@ -32,8 +32,14 @@ def send_telegram(message):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
-trading_client = TradingClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY, paper=config.PAPER_TRADING)
-data_client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
+try:
+    trading_client = TradingClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY, paper=config.PAPER_TRADING)
+    data_client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
+    print('[연결] Alpaca 연결 성공')
+except Exception as e:
+    print(f'[연결 오류] Alpaca 연결 실패: {e}')
+    import sys
+    sys.exit(1)
 
 US_HOLIDAYS = [
     "2025-01-01", "2025-01-20", "2025-02-17", "2025-04-18",
