@@ -2,14 +2,13 @@ name: SeeuStock Auto Trading
 
 on:
   schedule:
-    # NZ 시간 00:50 = UTC 11:50 (NZ는 UTC+13 DST 기준)
-    - cron: '50 11 * * 1-5'  # 월~금 UTC 11:50 (NZ 화~토 00:50)
-  workflow_dispatch:  # 수동 실행도 가능
+    - cron: '50 11 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   trade:
     runs-on: ubuntu-latest
-    timeout-minutes: 420  # 7시간 (01:00~07:30 커버)
+    timeout-minutes: 420
 
     steps:
       - name: Checkout code
@@ -29,4 +28,5 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: python alpaca_seeustock.py
+          PYTHONUNBUFFERED: "1"
+        run: python -u alpaca_seeustock.py
