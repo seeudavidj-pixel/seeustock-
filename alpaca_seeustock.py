@@ -9,7 +9,19 @@ from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockLatestQuoteRequest
-import alpaca_config as config
+import os
+
+class config:
+    TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '')
+    TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
+    ALPACA_API_KEY = os.environ.get('ALPACA_API_KEY', '')
+    ALPACA_SECRET_KEY = os.environ.get('ALPACA_SECRET_KEY', '')
+    PAPER_TRADING = os.environ.get('PAPER_TRADING', 'True') == 'True'
+    TOP_N_BUY = 2
+    CHECK_INTERVAL = 5
+    DROP_THRESHOLD = -5.0
+    PROFIT_TARGET = 10.0
+    STOP_LOSS = -5.0
 
 def send_telegram(message):
     try:
