@@ -24,14 +24,27 @@ class config:
     STOP_LOSS = -5.0
 
 def send_telegram(message):
-    try:
-        url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
-        data = {"chat_id": config.TELEGRAM_CHAT_ID, "text": message}
-        print(f"[텔레그램 시도] token={config.TELEGRAM_TOKEN[:10]}... chat_id={config.TELEGRAM_CHAT_ID}")
-        response = requests.post(url, data=data, timeout=10)
-        print(f"[텔레그램 응답] {response.status_code} {response.text[:100]}")
-    except Exception as e:
-        print(f"[텔레그램 오류] {e}")
+    print(f"[알림] {message}")
+    # 여러 방법으로 텔레그램 전송 시도
+    urls = [
+        f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage",
+        f"https://api1.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage",
+        f"https://api2.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage",
+    ]
+    for i, url in enumerate(urls):
+        try:
+            response = requests.post(
+                url,
+                json={"chat_id": config.TELEGRAM_CHAT_ID, "text": message},
+                timeout=15,
+                verify=False
+            )
+            if response.status_code == 200:
+                print(f"[텔레그램 전송 성공] endpoint {i+1}")
+                return
+        except Exception as e:
+            print(f"[텔레그램 시도 {i+1} 실패] {e}")
+    print("[텔레그램 전송 실패]")
 
 try:
     trading_client = TradingClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY, paper=config.PAPER_TRADING)
@@ -676,7 +689,6 @@ schedule.every(config.CHECK_INTERVAL).minutes.do(monitor_positions)
 schedule.every().day.at("07:30").do(market_close_job)
 
 if __name__ == "__main__":
-    send_telegram("🚀 SeeuStock 자동매매 시작!")
     try:
         existing_positions = trading_client.get_all_positions()
         if existing_positions:
@@ -688,9 +700,14 @@ if __name__ == "__main__":
                     buy_amounts[symbol] = float(pos.market_value)
             start_equity = get_equity()
             pos_list = ", ".join([pos.symbol for pos in existing_positions])
-            send_telegram("📋 기존 포지션: " + pos_list)
+            send_telegram("SeeuStock start! Positions: " + pos_list)
+
+
+
+
+            send_telegram("🚀 SeeuStock 자동매매 시작!")
     except Exception as e:
-        print(f"포지션 로드 오류: {e}")
+        send_telegram(f"🚀 SeeuStock 자동매매 시작! (포지션 로드 오류: {e})")
     print("SeeuStock 자동매매 실행 중...")
     print("종료하려면 Ctrl+C 를 누르세요.")
     while True:
