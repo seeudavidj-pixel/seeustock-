@@ -676,6 +676,7 @@ schedule.every(config.CHECK_INTERVAL).minutes.do(monitor_positions)
 schedule.every().day.at("07:30").do(market_close_job)
 
 if __name__ == "__main__":
+    send_telegram("🚀 SeeuStock 자동매매 시작!")
     try:
         existing_positions = trading_client.get_all_positions()
         if existing_positions:
@@ -687,14 +688,9 @@ if __name__ == "__main__":
                     buy_amounts[symbol] = float(pos.market_value)
             start_equity = get_equity()
             pos_list = ", ".join([pos.symbol for pos in existing_positions])
-            send_telegram("SeeuStock start! Positions: " + pos_list)
-
-
-
-
-            send_telegram("🚀 SeeuStock 자동매매 시작!")
+            send_telegram("📋 기존 포지션: " + pos_list)
     except Exception as e:
-        send_telegram(f"🚀 SeeuStock 자동매매 시작! (포지션 로드 오류: {e})")
+        print(f"포지션 로드 오류: {e}")
     print("SeeuStock 자동매매 실행 중...")
     print("종료하려면 Ctrl+C 를 누르세요.")
     while True:
