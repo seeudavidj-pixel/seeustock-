@@ -27,8 +27,9 @@ def send_telegram(message):
     try:
         url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
         data = {"chat_id": config.TELEGRAM_CHAT_ID, "text": message}
-        requests.post(url, data=data, timeout=10)
-        print(f"[텔레그램] {message}")
+        print(f"[텔레그램 시도] token={config.TELEGRAM_TOKEN[:10]}... chat_id={config.TELEGRAM_CHAT_ID}")
+        response = requests.post(url, data=data, timeout=10)
+        print(f"[텔레그램 응답] {response.status_code} {response.text[:100]}")
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
