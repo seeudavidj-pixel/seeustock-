@@ -81,7 +81,12 @@ def get_tiger_clients():
     try:
         client_config = TigerOpenClientConfig(sandbox_debug=False)
         client_config.tiger_id = TIGER_TIGER_ID
-        client_config.private_key = TIGER_PRIVATE_KEY
+        # Private Key 형식 정규화
+        pk = TIGER_PRIVATE_KEY.strip()
+        if not pk.startswith('-----BEGIN'):
+            # 헤더/푸터 없는 경우 추가
+            pk = "-----BEGIN RSA PRIVATE KEY-----\n" + pk + "\n-----END RSA PRIVATE KEY-----"
+        client_config.private_key = pk
         client_config.language = Language.en_US
         trade_client = TradeClient(client_config)
         quote_client = QuoteClient(client_config)
