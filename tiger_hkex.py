@@ -83,9 +83,14 @@ def get_tiger_clients():
         client_config.tiger_id = TIGER_TIGER_ID
         # Private Key 형식 정규화
         pk = TIGER_PRIVATE_KEY.strip()
-        if not pk.startswith('-----BEGIN'):
-            # 헤더/푸터 없는 경우 추가
-            pk = "-----BEGIN RSA PRIVATE KEY-----\n" + pk + "\n-----END RSA PRIVATE KEY-----"
+        # 헤더/푸터 제거하고 순수 base64만 추출
+        lines = pk.replace('-----BEGIN PRIVATE KEY-----', '').replace('-----END PRIVATE KEY-----', '')
+        lines = lines.replace('-----BEGIN RSA PRIVATE KEY-----', '').replace('-----END RSA PRIVATE KEY-----', '')
+        pk = lines.strip().replace('\n', '').replace(' ', '')
+        # 패딩 맞추기
+        padding = 4 - len(pk) % 4
+        if padding != 4:
+            pk = pk + '=' * padding
         client_config.private_key = pk
         client_config.language = Language.en_US
         trade_client = TradeClient(client_config)
