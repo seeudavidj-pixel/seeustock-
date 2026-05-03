@@ -1,0 +1,33 @@
+name: HKEx Auto Trading
+
+on:
+  schedule:
+    # NZ 시간 09:30 = UTC 21:30 전날 (NZ UTC+12)
+    - cron: '30 21 * * 0-4'  # UTC 일~목 21:30 = NZ 월~금 09:30
+  workflow_dispatch:
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 450  # 7.5시간 (09:30~17:00 커버)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run HKEx trading bot
+        env:
+          TIGER_ID: ${{ secrets.TIGER_ID }}
+          TIGER_PRIVATE_KEY: ${{ secrets.TIGER_PRIVATE_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u tiger_hkex.py
