@@ -1,6 +1,8 @@
 import time
 import requests
 import sys
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from datetime import datetime
 from bs4 import BeautifulSoup
 import pytz
@@ -347,10 +349,17 @@ def get_price(symbol):
     return None
 
 def get_equity():
-    try:
-        return float(trading_client.get_account().equity)
-    except:
-        return 0
+    for attempt in range(3):
+        try:
+            account = trading_client.get_account()
+            equity = float(account.equity)
+            if equity > 0:
+                return equity
+            time.sleep(2)
+        except Exception as e:
+            print(f"[잔액조회 오류 {attempt+1}] {e}")
+            time.sleep(3)
+    return 0
 
 def get_cash():
     try:
@@ -490,6 +499,10 @@ def monitor_once():
         return
     try:
         current_equity = get_equity()
+        # API 오류로 0 반환시 손절 금지 - 재시도
+        if current_equity <= 0:
+            print("[모니터링] 잔액 조회 실패 - 손절 판단 건너뜀")
+            return "continue"
         if start_equity > 0:
             total_pnl_pct = ((current_equity - start_equity) / start_equity) * 100
             if total_pnl_pct >= config.PROFIT_TARGET:
@@ -502,7 +515,7 @@ def monitor_once():
                 return "done"
 
         # 5분마다 뉴스 수집
-        news_items = get_market_news_list()
+        news_items = get_market_news()
 
         for symbol in held_stocks.copy():
             try:
@@ -512,8 +525,22 @@ def monitor_once():
                 buy_price = buy_prices.get(symbol, price)
                 profit_pct = ((price - buy_price) / buy_price) * 100
 
-                # 뉴스 감성 분석
-                sentiment, score = analyze_news_sentiment(news_items, symbol)
+                # 뉴스 감성 분석 - score_article 활용
+                news_score = 0
+                for item in news_items:
+                    if isinstance(item, dict):
+                        title = item.get('title', '')
+                    else:
+                        title = item
+                    if symbol.lower() in title.lower():
+                        news_score += score_article(title, '')
+
+                if news_score >= 2:
+                    sentiment = "positive"
+                elif news_score <= -2:
+                    sentiment = "negative"
+                else:
+                    sentiment = "neutral"
 
                 # 악재 뉴스 감지
                 if sentiment == "negative":
@@ -591,17 +618,37 @@ def monitor_once():
 # 메인 실행 - 시간 기반 순차 처리
 # ============================================
 if __name__ == "__main__":
+    # 00:50 이전이면 대기
+    now = nz_now()
+    current_time_min = now.hour * 60 + now.minute
+    START_TIME = 0 * 60 + 50  # 00:50
+
+    if current_time_min < START_TIME:
+        wait_sec = (START_TIME - current_time_min) * 60
+        print(f"[대기] 00:50까지 {wait_sec//60}분 대기...")
+        time.sleep(wait_sec)
+
     send_telegram("🚀 SeeuStock 자동매매 시작!")
 
     if not is_market_open_today():
         send_telegram("📅 오늘은 미국 장이 열리지 않아요")
         sys.exit(0)
 
-    # 잔액 먼저 확인 - 0이면 API 오류로 종료
+    # 잔액 확인 - 재시도 포함
     current_equity = get_equity()
     if current_equity <= 0:
-        send_telegram("⚠️ 잔액 조회 실패 - 프로그램 종료")
-        sys.exit(0)
+        # 포지션 가치로 대체 계산
+        try:
+            positions = trading_client.get_all_positions()
+            if positions:
+                current_equity = sum(float(p.market_value) for p in positions)
+                send_telegram(f"⚠️ 잔액 조회 실패 - 포지션 가치로 대체: ${current_equity:,.2f}")
+            else:
+                send_telegram("⚠️ 잔액 조회 실패 + 포지션 없음 - 종료")
+                sys.exit(0)
+        except:
+            send_telegram("⚠️ 잔액 및 포지션 조회 모두 실패 - 종료")
+            sys.exit(0)
     start_equity = current_equity
 
     # 기존 포지션 로드
