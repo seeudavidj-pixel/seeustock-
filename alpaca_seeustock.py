@@ -481,8 +481,11 @@ def find_next_stock(current_symbol):
         return candidate
     return None
 
+# 종목별 뉴스 감시 상태 (악재 감지 후 주가 하락 확인용)
+news_watch = {}  # {symbol: {'bad_news': True, 'watch_count': 0}}
+
 def monitor_once():
-    global held_stocks, watchlist, blacklist_today, start_equity
+    global held_stocks, watchlist, blacklist_today, start_equity, news_watch
     if not held_stocks:
         return
     try:
@@ -498,7 +501,9 @@ def monitor_once():
                 sell_all_stocks("전체 손절")
                 return "done"
 
-        news_items = get_market_news()
+        # 5분마다 뉴스 수집
+        news_items = get_market_news_list()
+
         for symbol in held_stocks.copy():
             try:
                 price = get_price(symbol)
@@ -506,8 +511,49 @@ def monitor_once():
                     continue
                 buy_price = buy_prices.get(symbol, price)
                 profit_pct = ((price - buy_price) / buy_price) * 100
+
+                # 뉴스 감성 분석
+                sentiment, score = analyze_news_sentiment(news_items, symbol)
+
+                # 악재 뉴스 감지
+                if sentiment == "negative":
+                    if symbol not in news_watch:
+                        news_watch[symbol] = {'bad_news': True, 'watch_count': 0, 'price_at_news': price}
+                        send_telegram(f"⚠️ {symbol} 악재 뉴스 감지! 주가 주시 시작 (현재: ${price:.2f})")
+                    else:
+                        news_watch[symbol]['watch_count'] += 1
+                        price_at_news = news_watch[symbol]['price_at_news']
+                        price_change = ((price - price_at_news) / price_at_news) * 100
+
+                        if price_change <= -1.5:
+                            # 악재 뉴스 후 주가 하락 확인 → 즉시 매도
+                            send_telegram(f"🚨 {symbol} 악재 뉴스 후 하락 확인! ({price_change:.1f}%) → 즉시 매도!")
+                            blacklist_today.append(symbol)
+                            if symbol in news_watch:
+                                del news_watch[symbol]
+                            sell_stock(symbol, f"악재 뉴스 후 하락 확인")
+                            next_stock = find_next_stock(symbol)
+                            if next_stock:
+                                send_telegram(f"🔄 교체 매수: {next_stock}")
+                                buy_stocks([next_stock])
+                            continue
+                        elif price_change >= 0:
+                            # 악재 뉴스인데 주가 버팀 → 계속 주시
+                            send_telegram(f"👀 {symbol} 악재 뉴스이나 주가 버팀 (${price:.2f}) → 계속 주시")
+                        else:
+                            # 소폭 하락 중 → 주시 계속
+                            send_telegram(f"👀 {symbol} 악재 뉴스 후 소폭 하락 중 ({price_change:.1f}%) → 주시 중")
+                else:
+                    # 악재 해소되면 주시 해제
+                    if symbol in news_watch:
+                        del news_watch[symbol]
+                        send_telegram(f"✅ {symbol} 악재 해소 → 정상 모니터링")
+
+                # 수익/손절 기준 체크
                 if profit_pct >= 10:
                     send_telegram(f"🎯 {symbol} +{profit_pct:.1f}% → 수익 확정!")
+                    if symbol in news_watch:
+                        del news_watch[symbol]
                     sell_stock(symbol, f"개별 목표 달성 +{profit_pct:.1f}%")
                     next_stock = find_next_stock(symbol)
                     if next_stock:
@@ -517,16 +563,24 @@ def monitor_once():
                 if profit_pct <= config.DROP_THRESHOLD:
                     blacklist_today.append(symbol)
                     send_telegram(f"🚨 {symbol} 손절! {profit_pct:.1f}%")
+                    if symbol in news_watch:
+                        del news_watch[symbol]
                     sell_stock(symbol, f"손절 {profit_pct:.1f}%")
                     next_stock = find_next_stock(symbol)
                     if next_stock:
                         send_telegram(f"🔄 교체 매수: {next_stock}")
                         buy_stocks([next_stock])
                     continue
+
+                # 현재 상태 보고
+                news_status = "악재주시중" if symbol in news_watch else sentiment
                 if profit_pct >= 5:
-                    send_telegram(f"📈 {symbol} +{profit_pct:.1f}% 상승 중!")
+                    send_telegram(f"📈 {symbol} +{profit_pct:.1f}% 상승 중! (뉴스: {news_status})")
                 elif profit_pct <= -3:
-                    send_telegram(f"📉 {symbol} {profit_pct:.1f}% 하락 중...")
+                    send_telegram(f"📉 {symbol} {profit_pct:.1f}% 하락 중... (뉴스: {news_status})")
+                else:
+                    send_telegram(f"📊 {symbol} {profit_pct:+.1f}% (뉴스: {news_status})")
+
             except Exception as e:
                 print(f"[모니터링 오류] {symbol}: {e}")
     except Exception as e:
@@ -543,6 +597,13 @@ if __name__ == "__main__":
         send_telegram("📅 오늘은 미국 장이 열리지 않아요")
         sys.exit(0)
 
+    # 잔액 먼저 확인 - 0이면 API 오류로 종료
+    current_equity = get_equity()
+    if current_equity <= 0:
+        send_telegram("⚠️ 잔액 조회 실패 - 프로그램 종료")
+        sys.exit(0)
+    start_equity = current_equity
+
     # 기존 포지션 로드
     try:
         existing_positions = trading_client.get_all_positions()
@@ -553,7 +614,6 @@ if __name__ == "__main__":
                     held_stocks.append(symbol)
                     buy_prices[symbol] = float(pos.avg_entry_price)
                     buy_amounts[symbol] = float(pos.market_value)
-            start_equity = get_equity()
             pos_list = ", ".join([pos.symbol for pos in existing_positions])
             send_telegram(f"📋 기존 포지션 로드: {pos_list}")
     except Exception as e:
@@ -627,12 +687,46 @@ if __name__ == "__main__":
             send_telegram(f"⏳ 01:30 장 시작까지 {wait_seconds//60}분 {wait_seconds%60}초 대기...")
             time.sleep(wait_seconds)
 
-        # 매수 실행
-        send_telegram("🔔 01:30 장 시작 → 매수 실행!")
+        # 매수 전 보유 주식 확인 및 처리
+        send_telegram("🔔 01:30 장 시작 → 보유 주식 확인 중...")
         start_equity = get_equity()
-        buy_list = watchlist[:config.TOP_N_BUY]
-        watchlist = watchlist[config.TOP_N_BUY:]
-        buy_stocks(buy_list)
+        new_top2 = watchlist[:config.TOP_N_BUY]
+
+        try:
+            existing_positions = trading_client.get_all_positions()
+            if existing_positions:
+                existing_symbols = [pos.symbol for pos in existing_positions]
+                to_sell = []
+                to_keep = []
+
+                for sym in existing_symbols:
+                    if sym in new_top2:
+                        to_keep.append(sym)
+                        send_telegram(f"✅ {sym} 순위 유지 → 보유 계속")
+                    else:
+                        to_sell.append(sym)
+
+                # 순위 밖 종목 매도
+                for sym in to_sell:
+                    send_telegram(f"🔄 {sym} 순위 변동 → 매도 후 교체")
+                    sell_stock(sym, "순위 변동 교체")
+                    time.sleep(1)
+
+                # 새로 매수할 종목 (보유 중인 건 제외)
+                buy_list = [s for s in new_top2 if s not in to_keep]
+                watchlist = [s for s in watchlist[config.TOP_N_BUY:] if s not in to_keep]
+            else:
+                buy_list = new_top2
+                watchlist = watchlist[config.TOP_N_BUY:]
+        except Exception as e:
+            print(f"보유 주식 확인 오류: {e}")
+            buy_list = new_top2
+            watchlist = watchlist[config.TOP_N_BUY:]
+
+        if buy_list:
+            buy_stocks(buy_list)
+        else:
+            send_telegram("✅ 기존 보유 종목과 순위 동일 → 매수 없음")
 
     # 07:30까지 모니터링 루프
     send_telegram(f"👀 모니터링 시작 (5분 간격, 07:30 자동 매도)")
@@ -651,6 +745,16 @@ if __name__ == "__main__":
 
         # 5분마다 모니터링
         if time.time() - last_monitor >= config.CHECK_INTERVAL * 60:
+            # 모니터링 상태 보고
+            if held_stocks:
+                status = "📊 모니터링 중\n"
+                for sym in held_stocks:
+                    price = get_price(sym)
+                    if price:
+                        bp = buy_prices.get(sym, price)
+                        pct = ((price - bp) / bp * 100)
+                        status += f"  {sym}: ${price:.2f} ({'+'if pct>=0 else ''}{pct:.1f}%)\n"
+                send_telegram(status)
             result = monitor_once()
             last_monitor = time.time()
             if result == "done":
