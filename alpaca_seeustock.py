@@ -434,13 +434,23 @@ def sell_stock(symbol, reason=""):
 def sell_all_stocks(reason="장 마감"):
     global held_stocks
     send_telegram(f"🔔 전량 매도 시작 ({reason})...")
-    try:
-        positions = trading_client.get_all_positions()
-        for pos in positions:
-            sell_stock(pos.symbol, reason)
-            time.sleep(1)
-    except Exception as e:
-        send_telegram(f"❌ 포지션 조회 실패: {e}")
+    # 최대 3번 재시도
+    for attempt in range(3):
+        try:
+            positions = trading_client.get_all_positions()
+            if not positions:
+                send_telegram("✅ 보유 포지션 없음")
+                break
+            for pos in positions:
+                sell_stock(pos.symbol, reason)
+                time.sleep(1)
+            break
+        except Exception as e:
+            send_telegram(f"⚠️ 포지션 조회 실패 ({attempt+1}/3): {e}")
+            if attempt < 2:
+                time.sleep(10)
+            else:
+                send_telegram("❌ 매도 실패 - 수동으로 확인 필요!")
     held_stocks = []
     time.sleep(3)
     send_daily_report()
@@ -448,6 +458,16 @@ def sell_all_stocks(reason="장 마감"):
 def send_daily_report():
     try:
         end_equity = get_equity()
+        # API 오류로 $0 반환시 포지션 가치로 대체
+        if end_equity <= 0:
+            try:
+                positions = trading_client.get_all_positions()
+                if positions:
+                    end_equity = sum(float(p.market_value) for p in positions)
+                else:
+                    end_equity = start_equity  # 포지션도 없으면 시작 잔액 유지
+            except:
+                end_equity = start_equity
         pnl = end_equity - start_equity
         pnl_pct = (pnl / start_equity * 100) if start_equity > 0 else 0
         emoji = "📈" if pnl >= 0 else "📉"
@@ -618,14 +638,21 @@ def monitor_once():
 # 메인 실행 - 시간 기반 순차 처리
 # ============================================
 if __name__ == "__main__":
-    # 00:50 이전이면 대기
+    # 시간 체크 - 00:50 이전이면 대기, 07:30 이후면 종료
     now = nz_now()
     current_time_min = now.hour * 60 + now.minute
-    START_TIME = 0 * 60 + 50  # 00:50
+    START_TIME = 0 * 60 + 50   # 00:50
+    MARKET_CLOSE_CHECK = 7 * 60 + 30  # 07:30
 
+    # 07:30 이후면 오늘은 종료
+    if current_time_min >= MARKET_CLOSE_CHECK:
+        print("[종료] 이미 07:30 이후 - 오늘 매매 종료")
+        sys.exit(0)
+
+    # 00:50 이전이면 대기
     if current_time_min < START_TIME:
         wait_sec = (START_TIME - current_time_min) * 60
-        print(f"[대기] 00:50까지 {wait_sec//60}분 대기...")
+        print(f"[대기] 00:50까지 {wait_sec//60}분 {wait_sec%60}초 대기...")
         time.sleep(wait_sec)
 
     send_telegram("🚀 SeeuStock 자동매매 시작!")
@@ -776,36 +803,52 @@ if __name__ == "__main__":
             send_telegram("✅ 기존 보유 종목과 순위 동일 → 매수 없음")
 
     # 07:30까지 모니터링 루프
-    send_telegram(f"👀 모니터링 시작 (5분 간격, 07:30 자동 매도)")
+    send_telegram(f"👀 모니터링 시작 (5분 간격 체크, 30분마다 보고, 07:30 자동 매도)")
     last_monitor = time.time()
+    last_report = time.time()
 
     while True:
         now = nz_now()
         current_time = now.hour * 60 + now.minute
 
-        # 07:30 도달 → 전량 매도 후 종료
+        # 07:30 도달 → 전량 매도 후 종료 (5번 재시도)
         if current_time >= MARKET_CLOSE:
             send_telegram("⏰ 07:30 장 마감 → 전량 매도 시작")
-            sell_all_stocks("장 마감")
-            send_telegram("🔒 오늘 거래 완료. 프로그램 종료합니다.")
+            success = False
+            for attempt in range(5):
+                try:
+                    sell_all_stocks("장 마감")
+                    success = True
+                    break
+                except Exception as e:
+                    send_telegram(f"⚠️ 매도 실패 ({attempt+1}/5): {e}\n10초 후 재시도...")
+                    time.sleep(10)
+            if success:
+                send_telegram("🔒 모든 포지션 정리 완료. 프로그램 종료합니다.")
+            else:
+                send_telegram("🚨 [긴급] 5회 시도에도 매도 실패! 수동 확인 필요!")
             sys.exit(0)
 
         # 5분마다 모니터링
         if time.time() - last_monitor >= config.CHECK_INTERVAL * 60:
-            # 모니터링 상태 보고
-            if held_stocks:
-                status = "📊 모니터링 중\n"
-                for sym in held_stocks:
-                    price = get_price(sym)
-                    if price:
-                        bp = buy_prices.get(sym, price)
-                        pct = ((price - bp) / bp * 100)
-                        status += f"  {sym}: ${price:.2f} ({'+'if pct>=0 else ''}{pct:.1f}%)\n"
-                send_telegram(status)
             result = monitor_once()
             last_monitor = time.time()
             if result == "done":
                 send_telegram("🔒 오늘 거래 완료. 프로그램 종료합니다.")
                 sys.exit(0)
+
+        # 30분마다 상태 보고
+        if time.time() - last_report >= 30 * 60:
+            if held_stocks:
+                status = "📊 30분 현황 보고\n"
+                for sym in held_stocks:
+                    price = get_price(sym)
+                    if price:
+                        bp = buy_prices.get(sym, price)
+                        pct = ((price - bp) / bp * 100)
+                        news_status = "악재주시중" if sym in news_watch else "정상"
+                        status += f"  {sym}: ${price:.2f} ({'+'if pct>=0 else ''}{pct:.1f}%) [{news_status}]\n"
+                send_telegram(status)
+            last_report = time.time()
 
         time.sleep(30)
