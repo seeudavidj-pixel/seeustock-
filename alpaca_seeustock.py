@@ -641,8 +641,8 @@ if __name__ == "__main__":
     # 시간 체크 - 00:50 이전이면 대기, 07:30 이후면 종료
     now = nz_now()
     current_time_min = now.hour * 60 + now.minute
-    START_TIME = 0 * 60 + 50   # 00:50
-    MARKET_CLOSE_CHECK = 7 * 60 + 30  # 07:30
+    START_TIME = 1 * 60 + 30   # 01:30
+    MARKET_CLOSE_CHECK = 7 * 60 + 0   # 07:00
 
     # 07:30 이후면 오늘은 종료
     if current_time_min >= MARKET_CLOSE_CHECK:
@@ -698,9 +698,9 @@ if __name__ == "__main__":
     current_minute = now.minute
     current_time = current_hour * 60 + current_minute  # 분으로 변환
 
-    MARKET_CLOSE = 7 * 60 + 30   # 07:30 = 450분
-    NEWS_TIME = 1 * 60 + 0       # 01:00 = 60분
-    BUY_TIME = 1 * 60 + 30       # 01:30 = 90분
+    MARKET_CLOSE = 7 * 60 + 0    # 07:00
+    NEWS_TIME = 1 * 60 + 30      # 01:30
+    BUY_TIME = 2 * 60 + 0        # 02:00 = 90분
 
     # 07:30 이후면 종료
     if current_time >= MARKET_CLOSE:
@@ -803,7 +803,7 @@ if __name__ == "__main__":
             send_telegram("✅ 기존 보유 종목과 순위 동일 → 매수 없음")
 
     # 07:30까지 모니터링 루프
-    send_telegram(f"👀 모니터링 시작 (5분 간격 체크, 30분마다 보고, 07:30 자동 매도)")
+    send_telegram(f"👀 모니터링 시작 (5분 간격 체크, 30분마다 보고, 07:00 자동 매도)")
     last_monitor = time.time()
     last_report = time.time()
 
@@ -813,7 +813,7 @@ if __name__ == "__main__":
 
         # 07:30 도달 → 전량 매도 후 종료 (5번 재시도)
         if current_time >= MARKET_CLOSE:
-            send_telegram("⏰ 07:30 장 마감 → 전량 매도 시작")
+            send_telegram("⏰ 07:00 장 마감 → 전량 매도 시작")
             success = False
             for attempt in range(5):
                 try:
