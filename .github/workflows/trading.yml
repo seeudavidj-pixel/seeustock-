@@ -5,6 +5,10 @@ on:
     - cron: '50 12 * * 1-5'
   workflow_dispatch:
 
+concurrency:
+  group: seeustock-trading
+  cancel-in-progress: false
+
 jobs:
   trade:
     runs-on: ubuntu-latest
