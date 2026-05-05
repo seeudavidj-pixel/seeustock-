@@ -2,12 +2,12 @@ name: SeeuStock Auto Trading
 
 on:
   schedule:
-    - cron: '50 12 * * 1-5'
+    - cron: '50 12 * * 0-4'  # UTC 일~목 12:50 = NZ 월~금 00:50
   workflow_dispatch:
 
 concurrency:
   group: seeustock-trading
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   trade:
