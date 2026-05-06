@@ -471,7 +471,7 @@ def send_daily_report():
         pnl = end_equity - start_equity
         pnl_pct = (pnl / start_equity * 100) if start_equity > 0 else 0
         emoji = "📈" if pnl >= 0 else "📉"
-        report = f"{emoji} 오늘의 매매 결과\n{'='*25}\n"
+        report = f"대표님 오늘 매매 결과 보고드리겠습니다! {emoji}\n{'='*25}\n"
         report += f"시작 잔액: ${start_equity:,.2f}\n"
         report += f"마감 잔액: ${end_equity:,.2f}\n"
         report += f"총 손익: {'+'if pnl>=0 else ''}{pnl:,.2f} USD\n"
@@ -486,7 +486,7 @@ def send_daily_report():
             report += f"  사유: {record['reason']}\n\n"
         send_telegram(report)
     except Exception as e:
-        send_telegram(f"✅ 전량 매도 완료 (보고서 오류: {e})")
+        send_telegram(f"대표님 오늘 매매 결과 보고드리겠습니다!\n(보고서 오류: {e})")
 
 def find_next_stock(current_symbol):
     global watchlist, blacklist_today
@@ -655,7 +655,7 @@ if __name__ == "__main__":
         print(f"[대기] 00:50까지 {wait_sec//60}분 {wait_sec%60}초 대기...")
         time.sleep(wait_sec)
 
-    send_telegram("🚀 SeeuStock 자동매매 시작!")
+    send_telegram("🚀 대표님 오늘 매매 시작하겠습니다!")
 
     if not is_market_open_today():
         send_telegram("📅 오늘은 미국 장이 열리지 않아요")
