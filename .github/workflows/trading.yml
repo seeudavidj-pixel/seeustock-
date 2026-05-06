@@ -2,7 +2,7 @@ name: SeeuStock Auto Trading
 
 on:
   schedule:
-    - cron: '50 12 * * 0-4'  # UTC 일~목 12:50 = NZ 월~금 00:50
+    - cron: '30 13 * * 0-4'  # UTC 일~목 13:30 = NZ 화~토 01:30
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   trade:
     runs-on: ubuntu-latest
-    timeout-minutes: 420
+    timeout-minutes: 360  # GitHub 최대 허용 6시간
 
     steps:
       - name: Checkout code
