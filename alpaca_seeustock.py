@@ -53,7 +53,12 @@ def send_telegram(message):
             print(f"[텔레그램 시도 {i+1} 실패] {e}")
 
 try:
-    trading_client = TradingClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY, paper=config.PAPER_TRADING)
+    trading_client = TradingClient(
+        config.ALPACA_API_KEY, 
+        config.ALPACA_SECRET_KEY, 
+        paper=config.PAPER_TRADING,
+        url_override=None
+    )
     data_client = StockHistoricalDataClient(config.ALPACA_API_KEY, config.ALPACA_SECRET_KEY)
     print('[연결] Alpaca 연결 성공')
 except Exception as e:
@@ -339,6 +344,27 @@ buy_amounts = {}
 sell_records = []
 blacklist_today = []
 
+def sync_positions():
+    """held_stocks를 실제 Alpaca 포지션과 동기화"""
+    global held_stocks, buy_prices, buy_amounts
+    for attempt in range(3):
+        try:
+            positions = trading_client.get_all_positions()
+            actual_symbols = [pos.symbol for pos in positions]
+            # held_stocks에 없는 실제 포지션 추가
+            for pos in positions:
+                if pos.symbol not in held_stocks:
+                    held_stocks.append(pos.symbol)
+                    buy_prices[pos.symbol] = float(pos.avg_entry_price)
+                    buy_amounts[pos.symbol] = float(pos.market_value)
+            # 실제 포지션에 없는 held_stocks 제거
+            held_stocks = [s for s in held_stocks if s in actual_symbols]
+            return True
+        except Exception as e:
+            print(f"[포지션 동기화 오류 {attempt+1}] {e}")
+            time.sleep(3)
+    return False
+
 def get_price(symbol):
     try:
         req = StockLatestQuoteRequest(symbol_or_symbols=symbol)
@@ -348,17 +374,25 @@ def get_price(symbol):
         print(f"[가격조회 오류] {symbol}: {e}")
     return None
 
+_last_equity = 0  # 마지막 성공한 잔액 캐시
+
 def get_equity():
-    for attempt in range(3):
+    global _last_equity
+    for attempt in range(5):
         try:
             account = trading_client.get_account()
             equity = float(account.equity)
             if equity > 0:
+                _last_equity = equity  # 성공시 캐시 저장
                 return equity
             time.sleep(2)
         except Exception as e:
             print(f"[잔액조회 오류 {attempt+1}] {e}")
             time.sleep(3)
+    # 모든 시도 실패시 캐시값 반환 (0 반환 방지)
+    if _last_equity > 0:
+        print(f"[잔액조회] 캐시값 사용: ${_last_equity:,.2f}")
+        return _last_equity
     return 0
 
 def get_cash():
@@ -434,24 +468,33 @@ def sell_stock(symbol, reason=""):
 def sell_all_stocks(reason="장 마감"):
     global held_stocks
     send_telegram(f"🔔 전량 매도 시작 ({reason})...")
-    # 최대 3번 재시도
-    for attempt in range(3):
-        try:
-            positions = trading_client.get_all_positions()
-            if not positions:
-                send_telegram("✅ 보유 포지션 없음")
+    
+    # held_stocks 기반으로 직접 매도 시도 (포지션 조회 없이)
+    if held_stocks:
+        for symbol in list(held_stocks):
+            sell_stock(symbol, reason)
+            time.sleep(2)
+        held_stocks = []
+    else:
+        # held_stocks 없으면 Alpaca에서 직접 조회
+        for attempt in range(5):
+            try:
+                positions = trading_client.get_all_positions()
+                if not positions:
+                    send_telegram("✅ 보유 포지션 없음")
+                    break
+                for pos in positions:
+                    sell_stock(pos.symbol, reason)
+                    time.sleep(2)
+                held_stocks = []
                 break
-            for pos in positions:
-                sell_stock(pos.symbol, reason)
-                time.sleep(1)
-            break
-        except Exception as e:
-            send_telegram(f"⚠️ 포지션 조회 실패 ({attempt+1}/3): {e}")
-            if attempt < 2:
-                time.sleep(10)
-            else:
-                send_telegram("❌ 매도 실패 - 수동으로 확인 필요!")
-    held_stocks = []
+            except Exception as e:
+                send_telegram(f"⚠️ 포지션 조회 실패 ({attempt+1}/5): {e}")
+                if attempt < 4:
+                    time.sleep(30)
+                else:
+                    send_telegram("❌ 매도 실패 - 수동 확인 필요!")
+    
     time.sleep(3)
     send_daily_report()
 
@@ -517,9 +560,12 @@ def monitor_once():
     global held_stocks, watchlist, blacklist_today, start_equity, news_watch
     if not held_stocks:
         return
+    # 포지션 동기화
+    sync_positions()
+
     try:
         current_equity = get_equity()
-        # API 오류로 0 반환시 손절 금지 - 재시도
+        # API 오류로 0 반환시 손절 금지
         if current_equity <= 0:
             print("[모니터링] 잔액 조회 실패 - 손절 판단 건너뜀")
             return "continue"
